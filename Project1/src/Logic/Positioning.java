@@ -119,33 +119,6 @@ public class Positioning {
         // Obtain the joint signal strengths for the traces
         HashMap<GeoPosition, SignalStrengthSamples> jointSSOffline = getJointSS(offlineTraceEntries);
         HashMap<GeoPosition, SignalStrengthSamples> jointSSOnline = getJointSS(onlineTraceEntries);
-
-        //
-        // Model based method of RADAR without WAF
-        // P(d)[dBm] = P(d0)[dBm] - 10 * n * log(d/d0)
-
-        // We now make a Hashmap to replace each entry
-        hashmap = new HashMap<MACAddress, Double>();
-
-        for (TraceEntry offline : offlineTrace) {
-
-            for (MACAddress mac : offline.getSignalStrengthSamples().keySet()) {
-
-                // We now compute the signal strength via the propagation model
-                // from RADAR
-                double pD = pd0 - 10 * n * Math.log10(offline.getGeoPosition().distance(APPosition(mac)) / d0);
-                hashmap.put(mac, pD);
-            }
-
-            for (MACAddress mac : hashmap.keySet()) {
-                // We now replace each signal strength in the offline set by the computed
-                offline.getSignalStrengthSamples().remove(mac);
-                offline.getSignalStrengthSamples().put(mac, hashmap.get(mac));
-
-            }
-            //hashmap.clear();
-        }
-        //
         
         // Compute the k-nearest neighbors
         // For each position in the online trace we have to compare such position with all the offline 
