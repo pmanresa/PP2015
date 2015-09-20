@@ -109,45 +109,18 @@ public class Positioning {
     file parameter indicates the file to write the output to.
     */
     
-    public void empirical_FP_NN(File file) throws FileNotFoundException {
-        
+    
+    public void model_FP_KNN(File file, int k, double pd0, double n, double d0) throws FileNotFoundException {
+        //To be implemented
         // Getting offline and online trace entries
         tg.generate();
         List<TraceEntry> offlineTraceEntries = tg.getOffline();
 	List<TraceEntry> onlineTraceEntries = tg.getOnline();
         
-        // Obtain the joint signal strengths for the traces
-        HashMap<GeoPosition, SignalStrengthSamples> jointSSOffline = getJointSS(offlineTraceEntries);
+        // We obtain the joint signal strengths for the traces. The offline's SS will be computed via propagation model RADAR
+        HashMap<GeoPosition, SignalStrengthSamples> jointSSOffline = getJointSSRadar(offlineTraceEntries,pd0,n,d0);
         HashMap<GeoPosition, SignalStrengthSamples> jointSSOnline = getJointSS(onlineTraceEntries);
-
-        //
-        // Model based method of RADAR without WAF
-        // P(d)[dBm] = P(d0)[dBm] - 10 * n * log(d/d0)
-
-        // We now make a Hashmap to replace each entry
-        hashmap = new HashMap<MACAddress, Double>();
-
-        for (TraceEntry offline : offlineTrace) {
-
-            for (MACAddress mac : offline.getSignalStrengthSamples().keySet()) {
-
-                // We now compute the signal strength via the propagation model
-                // from RADAR
-                double pD = pd0 - 10 * n * Math.log10(offline.getGeoPosition().distance(APPosition(mac)) / d0);
-                hashmap.put(mac, pD);
-            }
-
-            for (MACAddress mac : hashmap.keySet()) {
-                // We now replace each signal strength in the offline set by the computed
-                offline.getSignalStrengthSamples().remove(mac);
-                offline.getSignalStrengthSamples().put(mac, hashmap.get(mac));
-
-            }
-            //hashmap.clear();
-        }
-        //
         
-        // Compute the k-nearest neighbors
         // For each position in the online trace we have to compare such position with all the offline 
         // measurements. Therefore, the best position match will be computed to get the distance.
         HashMap<GeoPosition, GeoPosition> outputRadioMap = new HashMap();
@@ -155,33 +128,50 @@ public class Positioning {
         for (HashMap.Entry<GeoPosition, SignalStrengthSamples> onlinePos : jointSSOnline.entrySet()) {
             
             ArrayList<Neighbor> neighbors = new ArrayList();
+            List<MACAddress> aps = onlinePos.getValue().getSortedAccessPoints();
             
             // We obtain every single neighbor that the online position has, storing their distance between such a position.
             for (HashMap.Entry<GeoPosition, SignalStrengthSamples> offlinePos : jointSSOffline.entrySet()) {
+                
+                // We have to make sure that we are going to compute the same size of APs between the online and offline trace set
+                for (MACAddress apPosition : aps) {
+                    if (offlinePos.getValue().containsKey(apPosition)) {
+                        // Do nothing
+                    } else {
+                        // We will add a signalstrengthsample with value -100 (unhearable)
+                        SignalStrengthSamples ss = new SignalStrengthSamples();
+                        ss.put(apPosition, -100); 
+                        offlinePos.getValue().add(ss);
+                    }
+                }
+                    
                 double dist = getEuclideanDistSS(onlinePos.getValue(), offlinePos.getValue());
                 neighbors.add(new Neighbor(offlinePos.getKey(),dist));
+                
             }
             
-            // We compute the FP nearest neighbor algorithm
+            // We compute the K-nearest neighbor algorithm
+            if (k > neighbors.size())
+                throw new IllegalArgumentException("k must be smaller than the number of neighbors.");
             
+            // Sort the list and average over the k first members
             Collections.sort(neighbors);
-            // As we have sorted the neighbors list by distance, the only thing we have to do is to get the first element of such a list
-            GeoPosition estimation = new GeoPosition(neighbors.get(0).getPosition().getX(), neighbors.get(0).getPosition().getY());
+            double x = 0.0;
+            double y = 0.0;
+            for (int i = 0; i < k; i++) {
+                x += neighbors.get(i).getPosition().getX();
+                y += neighbors.get(i).getPosition().getY();
+            }
+            GeoPosition estimation = new GeoPosition(x/k, y/k);
             
             outputRadioMap.put(onlinePos.getKey(), estimation);
         }
+        
         FileParser parser = new FileParser();
         parser.writeToFile(outputRadioMap, file);
         
     }
     
-    public void model_FP_NN(File file) {
-        //To be implemented
-    }
-    
-    public void model_FP_KNN(File file) {
-        //To be implemented
-    }
     
     
     /*
@@ -204,7 +194,7 @@ public class Positioning {
                     break;
                 }
             }
-            // If it isn't in the HashMap, we add it to it
+            // If it isn't in the HashMap, we add it into it
             if (!inHashMap) {
                 jointSS.put(traceEntry.getGeoPosition(),traceEntry.getSignalStrengthSamples());
             }
@@ -212,17 +202,47 @@ public class Positioning {
         return jointSS;
     }
     
+    public HashMap<GeoPosition, SignalStrengthSamples> getJointSSRadar(List<TraceEntry> traceEntries, double pd0, double n, double d0) {
+        // Model based method of RADAR without WAF
+        // P(d)[dBm] = P(d0)[dBm] - 10 * n * log(d/d0)
+
+        // Same structure as getJointSS method developed above
+        HashMap<GeoPosition, SignalStrengthSamples> output = new HashMap();
+        System.out.println("getJointSSRadar method");
+        for (TraceEntry traceEntry : traceEntries) {
+            System.out.println("Computing trace : " + traceEntry.toString());
+            SignalStrengthSamples ss = new SignalStrengthSamples();
+            boolean inHashMap = false;
+            for (GeoPosition pos : output.keySet()) {
+                System.out.println("\tComputing position: " + pos.toStringWithoutOrientation() + " and distance to trace: " + traceEntry.getGeoPosition().distance(pos));
+                if (traceEntry.getGeoPosition().equalsWithoutOrientation(pos)) {
+                    System.out.println("\tDistance to be computed: " + traceEntry.getGeoPosition().distance(pos));
+                    double pD = pd0 - 10 * n * Math.log10( traceEntry.getGeoPosition().distance(pos) / d0);
+                    ss.put(traceEntry.getId(), pD);
+                    
+                    inHashMap= true;
+                    output.get(traceEntry.getGeoPosition()).add(ss);
+                    break;
+                }
+            }
+            if (!inHashMap) {
+                output.put(traceEntry.getGeoPosition(), traceEntry.getSignalStrengthSamples());
+            }
+        }
+        return output;
+    }
+    
     public double getEuclideanDistSS(SignalStrengthSamples ss1, SignalStrengthSamples ss2) {
         
-        double dist = 0.0;
+        double sum = 0.0;
         
         for (MACAddress ss1address : ss1.keySet()) {
             if (ss2.containsKey(ss1address)) {
-                dist += Math.pow(ss1.getAverageSignalStrength(ss1address)
+                sum += Math.pow(ss1.getAverageSignalStrength(ss1address)
                                 - ss2.getAverageSignalStrength(ss1address), 2);
             }
         }
-        return Math.sqrt(dist);
+        return Math.sqrt(sum);
     }
     
 }
