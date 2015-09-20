@@ -14,7 +14,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 import org.pi4.locutil.GeoPosition;
 import org.pi4.locutil.MACAddress;
@@ -29,11 +28,14 @@ import org.pi4.locutil.trace.TraceEntry;
  * @author Pere
  */
 public class Positioning {
+
     
     // Offline and online measurement files
     private static final String OFFLINE_PATH = "src/data/MU.1.5meters.offline.trace";
     private static final String ONLINE_PATH = "src/data/MU.1.5meters.online.trace";
-    
+
+    private static HashMap<MACAddress, Double> hashmap;
+
     // Offline and online sample sizes per true position
     private static final int OFFLINE_SAMPLE_SIZE = 10;
     private static final int ONLINE_SAMPLE_SIZE = 5;
@@ -59,13 +61,13 @@ public class Positioning {
         // Getting offline and online trace entries
         tg.generate();
         List<TraceEntry> offlineTraceEntries = tg.getOffline();
-	List<TraceEntry> onlineTraceEntries = tg.getOnline();
+	    List<TraceEntry> onlineTraceEntries = tg.getOnline();
         
         
         // Obtain the joint signal strengths for the traces
         HashMap<GeoPosition, SignalStrengthSamples> jointSSOffline = getJointSS(offlineTraceEntries);
         HashMap<GeoPosition, SignalStrengthSamples> jointSSOnline = getJointSS(onlineTraceEntries);
-        
+
         // Compute the k-nearest neighbors
         // For each position in the online trace we have to compare such position with all the offline 
         // measurements. Therefore, the best position match will be computed to get the distance.
@@ -208,15 +210,15 @@ public class Positioning {
 
         // Same structure as getJointSS method developed above
         HashMap<GeoPosition, SignalStrengthSamples> output = new HashMap();
-        System.out.println("getJointSSRadar method");
+        
         for (TraceEntry traceEntry : traceEntries) {
-            System.out.println("Computing trace : " + traceEntry.toString());
+            
             SignalStrengthSamples ss = new SignalStrengthSamples();
             boolean inHashMap = false;
+            
             for (GeoPosition pos : output.keySet()) {
-                System.out.println("\tComputing position: " + pos.toStringWithoutOrientation() + " and distance to trace: " + traceEntry.getGeoPosition().distance(pos));
+            
                 if (traceEntry.getGeoPosition().equalsWithoutOrientation(pos)) {
-                    System.out.println("\tDistance to be computed: " + traceEntry.getGeoPosition().distance(pos));
                     double pD = pd0 - 10 * n * Math.log10( traceEntry.getGeoPosition().distance(pos) / d0);
                     ss.put(traceEntry.getId(), pD);
                     
